@@ -1,0 +1,10 @@
+i want to create a game, where it is a stock exchange simulation, but instead of         
+  stocks we use plants, and number of seeds instead of number of shares. the currency      
+  will be gold. i want the setup to have a UI component, where we keep the platform        
+  flexible (e.g. android, ios, web) and a server component that keeps track of the         
+  actual exchange and the data/data models, sort of like a MVC architecture. the main      
+  "classes" or components will be players that have gold and own various seeds of          
+  plants, plants that have a price per seed determined by the exchange, and the            
+  exchange that provides transactions for the players to buy and sell seeds just like      
+  a stock exchange. in terms of the UI, i'd like to first start simple with a TUI, and     
+   later move on to an android app.  

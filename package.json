@@ -1,0 +1,20 @@
+{
+  "name": "jasmine-exchange",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail \"npm run dev -w packages/server\" \"npm run dev -w packages/tui\"",
+    "dev:server": "npm run dev -w packages/server",
+    "dev:tui": "npm run dev -w packages/tui",
+    "dev:admin": "npm run dev -w packages/admin-tui",
+    "build": "npm run build -w packages/shared && npm run build -w packages/server && npm run build -w packages/tui && npm run build -w packages/admin-tui",
+    "typecheck": "tsc --build packages/shared packages/server packages/tui packages/admin-tui"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.0.0"
+  }
+}
