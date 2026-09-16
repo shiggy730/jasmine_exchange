@@ -19,7 +19,12 @@ export class DayRoller {
 
   start(): void {
     // Catch up on retention immediately (e.g. after downtime), then daily thereafter.
-    this.pruneOldRecords();
+    // A failure here shouldn't block server startup — log and let the next check retry.
+    try {
+      this.pruneOldRecords();
+    } catch (err) {
+      console.error('Initial retention prune failed, will retry on next daily check:', err);
+    }
     // Check every 60 s — plenty of resolution for a midnight rollover
     this.timer = setInterval(() => this.check(), 60_000);
     console.log(`DayRoller started — trading day: ${this.lastDate} PT`);
@@ -33,12 +38,18 @@ export class DayRoller {
   }
 
   private check(): void {
-    const today = this.dailyRepo.getPacificDate();
-    if (today !== this.lastDate) {
-      console.log(`Trading day ended: ${this.lastDate} → ${today}`);
-      this.snapshot(this.lastDate);
-      this.pruneOldRecords();
-      this.lastDate = today;
+    // Runs on a setInterval with nothing to catch a throw — same reasoning as
+    // BotEngine's timers: a transient failure here must not crash the whole server.
+    try {
+      const today = this.dailyRepo.getPacificDate();
+      if (today !== this.lastDate) {
+        console.log(`Trading day ended: ${this.lastDate} → ${today}`);
+        this.snapshot(this.lastDate);
+        this.pruneOldRecords();
+        this.lastDate = today;
+      }
+    } catch (err) {
+      console.error('DayRoller check failed, will retry next minute:', err);
     }
   }
 

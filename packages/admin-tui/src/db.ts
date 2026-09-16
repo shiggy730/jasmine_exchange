@@ -15,6 +15,9 @@ const DEFAULT_DB_PATH = path.join(__dirname, '..', '..', 'server', 'jasmine.db')
 export const db: Database.Database = new Database(process.env['DB_PATH'] ?? DEFAULT_DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+// This is a second independent writer to the same file as the live server — wait for
+// the write lock instead of failing instantly if they briefly collide.
+db.pragma('busy_timeout = 5000');
 
 // This tool never runs migrations — that's the server's job. If the schema is
 // missing something expected, fail loudly rather than silently operating on a

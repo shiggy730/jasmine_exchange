@@ -73,39 +73,47 @@ export class BotEngine {
 
     plants.forEach((plant, i) => {
       const timeout = setTimeout(() => {
+        // This runs on a setInterval with no caller to catch a throw — an unhandled
+        // exception here (e.g. transient "database is locked") would crash the whole
+        // process, taking down real players' trading too. One bad tick should just
+        // log and retry next interval, not bring down the server.
         const runMM = () => {
-          const bot = this.playerRepo.findByName(`MM_${plant.ticker}`);
-          if (!bot) return;
+          try {
+            const bot = this.playerRepo.findByName(`MM_${plant.ticker}`);
+            if (!bot) return;
 
-          const price = this.plantRepo.getCurrentPrice(plant.id);
-          if (price === null) return;
+            const price = this.plantRepo.getCurrentPrice(plant.id);
+            if (price === null) return;
 
-          const spread = BOT_SPREAD[plant.ticker] ?? 0.02;
-          // Floor bid, ceil ask — guarantees bid < ask even on low-priced plants
-          const bidPrice = Math.max(1, Math.floor(price * (1 - spread)));
-          const askPrice = Math.ceil(price * (1 + spread));
-          const now = Date.now();
+            const spread = BOT_SPREAD[plant.ticker] ?? 0.02;
+            // Floor bid, ceil ask — guarantees bid < ask even on low-priced plants
+            const bidPrice = Math.max(1, Math.floor(price * (1 - spread)));
+            const askPrice = Math.ceil(price * (1 + spread));
+            const now = Date.now();
 
-          // Cancel stale orders first, then place fresh ones
-          this.orderRepo.cancelAllOpenByPlayerAndPlant(bot.id, plant.id, now);
+            // Cancel stale orders first, then place fresh ones
+            this.orderRepo.cancelAllOpenByPlayerAndPlant(bot.id, plant.id, now);
 
-          this.matcher.placeOrder({
-            playerId: bot.id,
-            plantId: plant.id,
-            type: 'bid',
-            price: bidPrice,
-            seedCount: MM_QTY,
-          });
+            this.matcher.placeOrder({
+              playerId: bot.id,
+              plantId: plant.id,
+              type: 'bid',
+              price: bidPrice,
+              seedCount: MM_QTY,
+            });
 
-          this.matcher.placeOrder({
-            playerId: bot.id,
-            plantId: plant.id,
-            type: 'ask',
-            price: askPrice,
-            seedCount: MM_QTY,
-          });
+            this.matcher.placeOrder({
+              playerId: bot.id,
+              plantId: plant.id,
+              type: 'ask',
+              price: askPrice,
+              seedCount: MM_QTY,
+            });
 
-          console.log(`MM ${plant.ticker}: bid=${bidPrice}g ask=${askPrice}g`);
+            console.log(`MM ${plant.ticker}: bid=${bidPrice}g ask=${askPrice}g`);
+          } catch (err) {
+            console.error(`MM ${plant.ticker} tick failed, will retry next interval:`, err);
+          }
         };
 
         runMM();
@@ -127,27 +135,33 @@ export class BotEngine {
       const schedule = (botId: string) => {
         const delay = 5_000 + Math.floor(Math.random() * 5_000);
         const timeout = setTimeout(() => {
-          const plant = plants[Math.floor(Math.random() * plants.length)]!;
-          // Re-fetch plant to get live bestBid/bestAsk
-          const current = this.plantRepo.getById(plant.id);
-          if (current) {
-            const side = Math.random() < 0.5 ? ('bid' as const) : ('ask' as const);
-            let orderPrice: number;
-            if (side === 'bid') {
-              // Aggressive: lift the best ask. If no ask, bid above market.
-              orderPrice = current.bestAsk ?? Math.max(1, current.currentPrice + Math.ceil(current.currentPrice * 0.02));
-            } else {
-              // Aggressive: hit the best bid. If no bid, ask below market.
-              orderPrice = current.bestBid ?? Math.max(1, current.currentPrice - Math.ceil(current.currentPrice * 0.02));
+          try {
+            const plant = plants[Math.floor(Math.random() * plants.length)]!;
+            // Re-fetch plant to get live bestBid/bestAsk
+            const current = this.plantRepo.getById(plant.id);
+            if (current) {
+              const side = Math.random() < 0.5 ? ('bid' as const) : ('ask' as const);
+              let orderPrice: number;
+              if (side === 'bid') {
+                // Aggressive: lift the best ask. If no ask, bid above market.
+                orderPrice = current.bestAsk ?? Math.max(1, current.currentPrice + Math.ceil(current.currentPrice * 0.02));
+              } else {
+                // Aggressive: hit the best bid. If no bid, ask below market.
+                orderPrice = current.bestBid ?? Math.max(1, current.currentPrice - Math.ceil(current.currentPrice * 0.02));
+              }
+              const qty = Math.floor(Math.random() * 5) + 1;
+              this.matcher.placeOrder({
+                playerId: botId,
+                plantId: plant.id,
+                type: side,
+                price: orderPrice,
+                seedCount: qty,
+              });
             }
-            const qty = Math.floor(Math.random() * 5) + 1;
-            this.matcher.placeOrder({
-              playerId: botId,
-              plantId: plant.id,
-              type: side,
-              price: orderPrice,
-              seedCount: qty,
-            });
+          } catch (err) {
+            // Same reasoning as the market-maker tick: never let a transient failure
+            // here (e.g. lock contention) crash the whole server.
+            console.error(`Noise trader ${botId} tick failed, will retry next tick:`, err);
           }
           schedule(botId);
         }, delay);

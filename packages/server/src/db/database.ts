@@ -9,6 +9,11 @@ export function getDb(): Database.Database {
     _db = new Database(config.dbPath);
     _db.pragma('journal_mode = WAL');
     _db.pragma('foreign_keys = ON');
+    // WAL allows concurrent readers but only one writer at a time. Without this, a
+    // writer that finds the db locked (e.g. another writer mid-transaction, or a
+    // second process like the admin TUI) throws "database is locked" immediately
+    // instead of waiting — this is what crashed the server via an unhandled bot error.
+    _db.pragma('busy_timeout = 5000');
     migrate(_db);
   }
   return _db;
@@ -71,6 +76,10 @@ CREATE TABLE IF NOT EXISTS trades (
   executed_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_trades_plant ON trades(plant_id, executed_at DESC);
+-- Retention pruning (DayRoller) filters by executed_at alone, across all plants — the
+-- index above is plant_id-first and useless for that, forcing a full table scan that
+-- holds the write lock for the whole scan. This makes it an index range scan instead.
+CREATE INDEX IF NOT EXISTS idx_trades_executed_at ON trades(executed_at);
 
 CREATE TABLE IF NOT EXISTS price_history (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +88,9 @@ CREATE TABLE IF NOT EXISTS price_history (
   recorded_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_price_history_plant ON price_history(plant_id, recorded_at DESC);
+-- Same reasoning as idx_trades_executed_at above, for pruneHistoryOlderThan()'s
+-- WHERE recorded_at < cutoff (no plant_id filter).
+CREATE INDEX IF NOT EXISTS idx_price_history_recorded_at ON price_history(recorded_at);
 
 CREATE TABLE IF NOT EXISTS daily_plant_prices (
   plant_id    TEXT NOT NULL REFERENCES plants(id),
